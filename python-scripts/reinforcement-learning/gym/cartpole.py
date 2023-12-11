@@ -15,7 +15,7 @@ class Policy(nn.Module):
         return torch.softmax(self.fc(x), dim=1) 
     
 # Create instance of cartpole env
-env = gym.make('CartPole-v1')
+env = gym.make('CartPole-v1', render_mode='rgb_array')
 
 # Create instance of local policy network and define optimizer
 policy = Policy()
