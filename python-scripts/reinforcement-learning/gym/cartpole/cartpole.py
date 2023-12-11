@@ -14,8 +14,9 @@ class Policy(nn.Module):
         # in the case of the output size being 2, i.e. [4][1] - dim 0 is 1 (height), dim 1 is 2 (width)
         return torch.softmax(self.fc(x), dim=1) 
     
-# Create instance of cartpole env
-env = gym.make('CartPole-v1', render_mode='rgb_array')
+def main():
+    # Create instance of cartpole env
+    env = gym.make('CartPole-v1', render_mode='rgb_array')
 
     # Create instance of local policy network and define optimizer
     policy = Policy()
