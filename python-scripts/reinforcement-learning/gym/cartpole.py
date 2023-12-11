@@ -14,46 +14,51 @@ class Policy(nn.Module):
         # in the case of the output size being 2, i.e. [4][1] - dim 0 is 1 (height), dim 1 is 2 (width)
         return torch.softmax(self.fc(x), dim=1) 
     
-# Create instance of cartpole env
-env = gym.make('CartPole-v1')
 
-# Create instance of local policy network and define optimizer
-policy = Policy()
-# Adam creates separate learning rates for each param, 
-# adapting based on the mean and variance of past gradients
-optimizer = optim.Adam(policy.parameters(), lr=0.01)
+def main():
+    # Create instance of cartpole env
+    env = gym.make('CartPole-v1')
 
-# Training loop
-for episode in range(100):
-    state = env.reset()[0]
-    done = False
-    t= 0 #timesteps
-    while not done:
-        env.render()
-        # The state is read from the environment and is converted into a pytorch tensor
-        # The action is determined using only state observations
-        state = state.reshape(1, -1)
-        action_probs = policy(torch.tensor(state, dtype=torch.float32))
-        # multinomial distributions model the likelihood of several different things happening
-        # the 1 refers to picking one action from the distribution (highest probability)
-        action = torch.multinomial(action_probs, 1).item()
-        # The reward function is in the environment in this case
-        next_state, reward, done, _, _ = env.step(action)
+    # Create instance of local policy network and define optimizer
+    policy = Policy()
+    # Adam creates separate learning rates for each param, 
+    # adapting based on the mean and variance of past gradients
+    optimizer = optim.Adam(policy.parameters(), lr=0.01)
 
-        # Train
-        optimizer.zero_grad() # Resets all gradients of all model params to zero
-        # Calculate loss (negative reward for CartPole as it's a maximization task)
-        # Taking the negative log probability of the chosen action encourages the model to increase
-        # the prob of actions that receive higher rewards. Negative log prob of highly likely actions
-        # will be small. The loss being scaled by the reward tells the model that the probability
-        # of the chosen action should have been higher/lower
-        loss = -torch.log(action_probs[0, action]) * reward
-        loss.backward() # compute the gradients
-        optimizer.step() # update params based on gradients
+    # Training loop
+    for episode in range(100):
+        state = env.reset()[0]
+        done = False
+        t= 0 #timesteps
+        while not done:
+            # The state is read from the environment and is converted into a pytorch tensor
+            # The action is determined using only state observations
+            state = state.reshape(1, -1)
+            action_probs = policy(torch.tensor(state, dtype=torch.float32))
+            # multinomial distributions model the likelihood of several different things happening
+            # the 1 refers to picking one action from the distribution (highest probability)
+            action = torch.multinomial(action_probs, 1).item()
+            # The reward function is in the environment in this case
+            next_state, reward, done, _, _ = env.step(action)
 
-        state = next_state
-        t += 1
+            # Train
+            optimizer.zero_grad() # Resets all gradients of all model params to zero
+            # Calculate loss (negative reward for CartPole as it's a maximization task)
+            # Taking the negative log probability of the chosen action encourages the model to increase
+            # the prob of actions that receive higher rewards. Negative log prob of highly likely actions
+            # will be small. The loss being scaled by the reward tells the model that the probability
+            # of the chosen action should have been higher/lower
+            loss = -torch.log(action_probs[0, action]) * reward
+            loss.backward() # compute the gradients
+            optimizer.step() # update params based on gradients
 
-    print(f'Episode {episode + 1} finished after {t+1} timesteps')
+            state = next_state
+            t += 1
 
-env.close()
+        print(f'Episode {episode + 1} finished after {t+1} timesteps')
+
+    # Save the model
+    torch.save(policy.state_dict(), 'cartpole.pth')
+
+if __name__ == '__main__':
+    main()
