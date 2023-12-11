@@ -29,6 +29,7 @@ for episode in range(100):
     done = False
     t= 0 #timesteps
     while not done:
+        env.render()
         # The state is read from the environment and is converted into a pytorch tensor
         # The action is determined using only state observations
         state = state.reshape(1, -1)
@@ -54,3 +55,5 @@ for episode in range(100):
         t += 1
 
     print(f'Episode {episode + 1} finished after {t+1} timesteps')
+
+env.close()
