@@ -2,6 +2,9 @@ import gymnasium as gym
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import sys
+sys.path.append('../')
+from qpolicy import Q
 
 # Create a simple NN
 class Policy(nn.Module):
@@ -19,17 +22,21 @@ def main():
     env = gym.make('CartPole-v1', render_mode='rgb_array')
 
     # Create instance of local policy network and define optimizer
-    policy = Policy()
+    # policy = Policy()
+    num_states = env.observation_space.
+    num_actions = env.action_space.n
+    policy = Q(num_states, num_actions)
     # Adam creates separate learning rates for each param, 
     # adapting based on the mean and variance of past gradients
     optimizer = optim.Adam(policy.parameters(), lr=0.01)
 
     # Training loop
-    for episode in range(100):
+    for episode in range(1000):
         state = env.reset()[0]
-        done = False
+        terminated = False
+        truncated = False
         t= 0 #timesteps
-        while not done:
+        while not terminated or truncated:
             # The state is read from the environment and is converted into a pytorch tensor
             # The action is determined using only state observations
             state = state.reshape(1, -1)
@@ -38,7 +45,7 @@ def main():
             # the 1 refers to picking one action from the distribution (highest probability)
             action = torch.multinomial(action_probs, 1).item()
             # The reward function is in the environment in this case
-            next_state, reward, done, _, _ = env.step(action)
+            next_state, reward, terminated, truncated, _ = env.step(action)
 
             # Train
             optimizer.zero_grad() # Resets all gradients of all model params to zero
@@ -53,8 +60,13 @@ def main():
 
             state = next_state
             t += 1
+        end_condition = ''
+        if terminated:
+            end_condition = 'terminated'
+        else:
+            end_condition = 'truncated'
 
-        print(f'Episode {episode + 1} finished after {t+1} timesteps')
+        print(f'Episode {episode + 1} {end_condition} after {t+1} timesteps')
 
     # Save the model
     torch.save(policy.state_dict(), 'cartpole.pth')
