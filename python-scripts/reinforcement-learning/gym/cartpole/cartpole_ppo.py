@@ -2,36 +2,65 @@ import gymnasium as gym
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import sys
-sys.path.append('../')
-from qpolicy import Q
+from torch.distributions import Categorical
 
-# Create a simple NN
-class Policy(nn.Module):
+# PPO: Improve the policy while ensuring the new policy doesn't deviate too far from the old one.
+
+# Hyperparams
+GAMMA = 0.99 # Importance of rewards
+EPS_CLIP = 0.2 # Provides a threshold for how much the policy can change in a single training update
+LR = 0.0003
+BATCH_SIZE = 32
+K_EPOCHS = 4 # Defines how many times algorithm will iterate over all the experiences per iteration of training
+
+# Create NN for policy and value
+class ActorCritic(nn.Module):
     def __init__(self):
-        super(Policy, self).__init__()
-        self.fc = nn.Linear(4, 2) # Input size for cartpole is 4, output is 2 (left or right)
+        super(ActorCritic, self).__init__()
+        self.fc = nn.Linear(4, 128)
+        self.policy_layer = nn.Linear(128, 2) # 2 actions to choose from (Actor)
+        self.value_layer = nn.Linear(128, 1) # Estimates value of state, predicting expected return from state under current policy (Critic)
 
     def forward(self, x):
-        # dim=1 specifies applying aoftmax along the second dimension of the output of self.fc
-        # in the case of the output size being 2, i.e. [4][1] - dim 0 is 1 (height), dim 1 is 2 (width)
-        return torch.softmax(self.fc(x), dim=1) 
+        x = torch.relu(self.fc(x))
+        policy = torch.softmax(self.policy_layer(x), dim=1) # dim=1 is a necessary evil where we must specify the axis which softmax must be applied to
+        # The value layer assigns a single value to the state. This value represents the expected return (sum of rewards) form the current state
+        value = self.value_layer(x) 
+        return policy, value
+
+def compute_returns(rewards, masks, gamma):
+    returns = []
+    R = 0
+    for reward, mask in zip(reversed(rewards), reversed(masks)):
+        R = reward + gamma * R * mask
+        returns.insert(0, R)
+    return returns
+
+def ppo_update(policy, optimizer, memory, ppo_epochs, batch_size, clip_param):
+    for _ in range(ppo_epochs):
+        for states, actions, old_log_probs, returns, advantage in memory.sample(batch_size):
+            # Evaluate new policy
+            new_log_probs, state_values = policy.evaluate(states, actions)
+
+            # Calculate the advantage
+            #! Need to understand PPO better before implementing this
+
+
+
     
 def main():
     # Create instance of cartpole env
     env = gym.make('CartPole-v1', render_mode='rgb_array')
 
     # Create instance of local policy network and define optimizer
-    # policy = Policy()
-    num_states = env.observation_space.
-    num_actions = env.action_space.n
-    policy = Q(num_states, num_actions)
+    policy = Policy()
+ 
     # Adam creates separate learning rates for each param, 
     # adapting based on the mean and variance of past gradients
     optimizer = optim.Adam(policy.parameters(), lr=0.01)
 
     # Training loop
-    for episode in range(1000):
+    for episode in range(10000):
         state = env.reset()[0]
         terminated = False
         truncated = False

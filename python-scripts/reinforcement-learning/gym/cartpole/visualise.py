@@ -1,6 +1,6 @@
 import torch
 import gymnasium as gym
-from cartpole import Policy
+from cartpole_nn import Policy
 
 # Load the model
 
