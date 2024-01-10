@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
+from ppo_memory import Memory
 
 # PPO: Improve the policy while ensuring the new policy doesn't deviate too far from the old one.
 
@@ -10,7 +11,8 @@ from torch.distributions import Categorical
 GAMMA = 0.99 # Importance of rewards
 EPS_CLIP = 0.2 # Provides a threshold for how much the policy can change in a single training update
 LR = 0.0003
-BATCH_SIZE = 32
+BATCH_SIZE = 1000 # Number of actions to take before training step is taken
+MINI_BATCH_SIZE = 64 # Number of random actions taken from the batch to train with per mini_batch
 K_EPOCHS = 4 # Defines how many times algorithm will iterate over all the experiences per iteration of training
 
 # Create NN for policy and value
@@ -31,10 +33,12 @@ class ActorCritic(nn.Module):
         value = self.value_layer(x) 
         return policy, value
     
+    # Calculate the log probabilities of each action occuring as well as the values of the states
+    # This enables quantification of the amount the model has changed during this update
     def evaluate(self, states, actions):
         policy, state_values = self.forward(states)
-        # Place probability distribution into a Categorical object for RL fucnitons
-        dist = torch.districutions.Categorical(policy)
+        # Place probability distribution into a Categorical object for RL functions
+        dist = torch.distributions.Categorical(policy)
         # Compute log probs of actions
         # Computing the log prob of each action allows for the gradient to be scaled by the 
         # probability of an action, encouraging the policy to increase the likelihood of 
@@ -58,12 +62,12 @@ def compute_returns(rewards, masks, gamma):
         R = reward + gamma * R * mask
         # insert() function un-reverses the order, ensuring that each new R value is stored at the 
         # beginning of the list.
-        returns.insert(0, R) 
+        returns.insert(0, torch.tensor([R], dtype=torch.float32)) 
     return returns
 
 def ppo_update(policy, optimizer, memory, ppo_epochs, batch_size, clip_param):
     for _ in range(ppo_epochs):
-        for states, actions, old_log_probs, returns, advantage in memory.sample(batch_size):
+        for states, actions, old_log_probs, returns in memory.sample(batch_size):
             # Evaluate new policy
             new_log_probs, state_values = policy.evaluate(states, actions)
 
@@ -78,13 +82,12 @@ def ppo_update(policy, optimizer, memory, ppo_epochs, batch_size, clip_param):
             # This becomes relevant when loss.backward() is called later
             # If detach is not used, the gradients are propogated through the actor and critics networks
             # with respect to each other, which violates their separation. 
-            # The resulting issue is to update the actor's parameters, treating the critics output as a variable
-            # that influences the policy's loss
+            # The resulting issue is to update the actor's parameters, treating the critics output as a variable that influences the policy's loss
             #! Monte-carlo method
             advantage = returns - state_values.detach()
 
             # Calculate the ratios
-            # Calculating the exponential of the new_log_probs - old_log_probs is evuivalent 
+            # Calculating the exponential of the new_log_probs - old_log_probs is equivalent 
             # to new_log_probs/old_log_probs
             # The ratios quatify how much the actions of the policy have changed since the last update
             ratios = torch.exp(new_log_probs - old_log_probs)
@@ -92,7 +95,7 @@ def ppo_update(policy, optimizer, memory, ppo_epochs, batch_size, clip_param):
             # Calculate Surrogate losses
             # Scale the ratios by the advantage
             # Which means to scale the change in the policy by how good the policy decisions were
-            # found to be compared to the average (which is just the state value)
+            # compared to the average (which is just the state value)
             surr1 = ratios * advantage
             # torch.clamp(input, min, max) constrains values of a tensor within a specific range
             # By making sure that the ratio is not too far from 1 (where they would be the same)
@@ -109,6 +112,8 @@ def ppo_update(policy, optimizer, memory, ppo_epochs, batch_size, clip_param):
             # Value function loss
             # Calculating the MSE between the state_values and the returns
             # We want to optimise the state value function so that it more closely approximates the reward
+            state_values = state_values.squeeze(-1)
+            print(f'\n\n\nState values: {state_values.shape}\nReturns: {returns.shape}\n\n\n')
             value_loss = nn.MSELoss()(state_values, returns)
 
             # Total loss
@@ -127,13 +132,14 @@ def ppo_update(policy, optimizer, memory, ppo_epochs, batch_size, clip_param):
 
     
 def main():
+    torch.autograd.set_detect_anomaly(True)
     # Create instance of cartpole env
     env = gym.make('CartPole-v1', render_mode='rgb_array')
 
     policy = ActorCritic()
     optimizer = optim.Adam(policy.parameters(), lr=LR)
  
-    memory = Memory() # need to define memory class to store experiences
+    memory = Memory() 
 
     # Training loop
     for episode in range(10000):
@@ -142,6 +148,7 @@ def main():
         truncated = False
         t= 0 #timesteps
         while not terminated or truncated:
+            state = state.reshape(1, -1)
             state = torch.tensor(state, dtype=torch.float32) # Convert state to torch tensor
             action_probs, _ = policy(state) # Get vector of probs over actions using policy
             dist = Categorical(action_probs) # Doesn't change vector, allows use of sample()
@@ -150,9 +157,9 @@ def main():
             next_state, reward, terminated, truncated, _ = env.step(action.item())
 
             # Store in memory
-            memory.states.append(state)
-            memory.actions.append(action)
-            memory.log_probs.append(dist.log_prob(action))
+            memory.states.append(state.clone())
+            memory.actions.append(action.clone())
+            memory.log_probs.append(dist.log_prob(action).clone())
             memory.rewards.append(reward)
             memory.is_terminals.append(terminated or truncated)
 
@@ -164,8 +171,7 @@ def main():
                 # Batch size defines how much data will be used for return computation
                 returns = compute_returns(memory.rewards, memory.is_terminals, GAMMA)
                 memory.returns = returns
-                memory.compute_advantages() # need to implement
-                ppo_update(policy, optimizer, memory, K_EPOCHS, BATCH_SIZE, EPS_CLIP)
+                ppo_update(policy, optimizer, memory, K_EPOCHS, MINI_BATCH_SIZE, EPS_CLIP)
                 memory.clear()
 
         print(f'Episode {episode + 1} ended after {t+1} timesteps')
