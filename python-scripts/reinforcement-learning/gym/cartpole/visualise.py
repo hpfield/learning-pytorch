@@ -1,11 +1,13 @@
 import torch
 import gymnasium as gym
 from cartpole_nn import Policy
+# from ppo import ActorCritic
+from cartpole_ppo import ActorCritic
 
 # Load the model
 
-policy = Policy()
-policy.load_state_dict(torch.load('cartpole.pth'))
+policy = ActorCritic()
+policy.load_state_dict(torch.load('ppo_cartpole.pth'))
 
 env = gym.make('CartPole-v1', render_mode='human')
 
@@ -14,9 +16,9 @@ done = False
 
 while not done:
     env.render()
-    state = state.reshape(1, -1)
-    action_probs = policy(torch.tensor(state, dtype=torch.float32))
-    action = torch.argmax(action_probs).item()
+    state = torch.tensor(state, dtype=torch.float32).reshape(1, -1)
+    action_probs, _ = policy(torch.tensor(state, dtype=torch.float32))
+    action = torch.multinomial(action_probs, 1).item()
     next_state, _, done, _, _ = env.step(action)
     state = next_state
 

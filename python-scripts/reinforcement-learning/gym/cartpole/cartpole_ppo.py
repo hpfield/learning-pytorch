@@ -11,7 +11,8 @@ from ppo_memory import Memory
 GAMMA = 0.99 # Importance of rewards
 EPS_CLIP = 0.2 # Provides a threshold for how much the policy can change in a single training update
 LR = 0.0003
-BATCH_SIZE = 1000 # Number of actions to take before training step is taken
+MAX_EPISODES = 10000
+TIMESTEPS = 10000 # Number of actions to take before training step is taken
 MINI_BATCH_SIZE = 64 # Number of random actions taken from the batch to train with per mini_batch
 K_EPOCHS = 4 # Defines how many times algorithm will iterate over all the experiences per iteration of training
 
@@ -90,7 +91,11 @@ def ppo_update(policy, optimizer, memory, ppo_epochs, batch_size, clip_param):
             # Calculating the exponential of the new_log_probs - old_log_probs is equivalent 
             # to new_log_probs/old_log_probs
             # The ratios quatify how much the actions of the policy have changed since the last update
-            ratios = torch.exp(new_log_probs - old_log_probs)
+            ratios = torch.exp(new_log_probs - old_log_probs.detach()) #! The lack of the detach statement was causing the issue
+            #! The goal of old_log_probs is to calculate the change in the policy
+            #! The old policy is to be treated as a constant, rather than a variable that influences the model behaviour
+            #! i.e. this is not a thing that the actor is trying to optimize, nor is it a parameter influencing the optimisation
+            #! It is just used for the clipping
 
             # Calculate Surrogate losses
             # Scale the ratios by the advantage
@@ -112,7 +117,7 @@ def ppo_update(policy, optimizer, memory, ppo_epochs, batch_size, clip_param):
             # Value function loss
             # Calculating the MSE between the state_values and the returns
             # We want to optimise the state value function so that it more closely approximates the reward
-            state_values = state_values.squeeze(-1)
+            # state_values = torch.squeeze(state_values)
             print(f'\n\n\nState values: {state_values.shape}\nReturns: {returns.shape}\n\n\n')
             value_loss = nn.MSELoss()(state_values, returns)
 
@@ -150,7 +155,7 @@ def main():
         while not terminated or truncated:
             state = state.reshape(1, -1)
             state = torch.tensor(state, dtype=torch.float32) # Convert state to torch tensor
-            action_probs, _ = policy(state) # Get vector of probs over actions using policy
+            action_probs, _ = policy.forward(state) # Get vector of probs over actions using policy
             dist = Categorical(action_probs) # Doesn't change vector, allows use of sample()
             action = dist.sample() # Randomly choose an action according to the probability dist
 
@@ -167,14 +172,16 @@ def main():
             t +=1
 
             # Update if batch is full
-            if len(memory) == BATCH_SIZE:
+            if len(memory) == TIMESTEPS:
                 # Batch size defines how much data will be used for return computation
                 returns = compute_returns(memory.rewards, memory.is_terminals, GAMMA)
                 memory.returns = returns
                 ppo_update(policy, optimizer, memory, K_EPOCHS, MINI_BATCH_SIZE, EPS_CLIP)
                 memory.clear()
 
-        print(f'Episode {episode + 1} ended after {t+1} timesteps')
+        # print(f'Episode {episode + 1} ended after {t+1} timesteps')
+        if episode % 100 == 0:
+            print(f'Episode {episode + 1} finished')
 
     # Save the model
     torch.save(policy.state_dict(), 'ppo_cartpole.pth')
